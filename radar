@@ -1,0 +1,367 @@
+exp1 | radar range
+clc; clear; close all;
+
+Pt = 10e3; Pmin = 1e-13;
+G = 1000; c = 3e8;
+lam = c/10e9;
+
+Rmax = @(Pt,G,lam,s) (Pt*G^2*lam.^2.*s/((4*pi)^3*Pmin)).^(1/4);
+
+R = linspace(0.1,100,500)*1e3;
+F = linspace(1,20,100);
+S = linspace(0.1,100,100);
+
+fprintf('Maximum Range = %.2f km\n',Rmax(Pt,G,lam,1)/1e3)
+
+subplot(3,2,1)
+plot(R/1e3,10*log10(Pt*G^2*lam^2./((4*pi)^3*R.^4)/1e-3))
+title('Received Power vs Range')
+xlabel('Range (km)'); ylabel('Power (dBm)'); 
+
+subplot(3,2,2)
+plot(R/1e3,Pmin*(4*pi)^3*R.^4/(G^2*lam^2)/1e3)
+title('Minimum Power vs Range')
+xlabel('Range (km)'); ylabel('Power (kW)'); 
+
+subplot(3,2,3)
+plot(R/1e3,10*log10(sqrt(Pmin*(4*pi)^3*R.^4/(Pt*lam^2))))
+title('Radar Parameter vs Range')
+xlabel('Range (km)'); ylabel('Parameter (dB)'); 
+
+subplot(3,2,4)
+plot(F,Rmax(Pt,G,c./(F*1e9),1)/1e3)
+title('Range vs Frequency')
+xlabel('Frequency (GHz)'); ylabel('Range (km)'); 
+
+subplot(3,2,5)
+plot(S,Rmax(Pt,G,lam,S)/1e3)
+title('Range vs RCS')
+xlabel('RCS (m^2)'); ylabel('Range (km)'); 
+
+
+
+
+exp2 | radar in noise
+ 
+
+clc; clear; close all;
+
+% Parameters
+N = 1000;
+x = zeros(1,N);
+x(400:450) = 1;
+
+SNR = 0;
+Pfa = 0.01;
+
+% Generate noisy radar signal
+Ps = mean(x.^2);
+Pn = Ps/10^(SNR/10);
+noise = sqrt(Pn)*randn(1,N);
+rx = x + noise;
+
+% Figure 1: Original radar pulse
+figure
+plot(x,'LineWidth',1.5)
+title('Original Radar Signal')
+xlabel('Sample Number')
+ylabel('Amplitude')
+
+% Figure 2: Radar signal in AWGN
+figure
+plot(rx,'b')
+hold on
+plot(x,'r','LineWidth',1.5)
+title('Radar Signal in AWGN, SNR = 0 dB')
+xlabel('Sample Number')
+ylabel('Amplitude')
+legend('Received Signal + AWGN','Original Pulse')
+
+% Figure 3: Probability of Detection vs SNR
+snr = 0:1:10;
+Pd = zeros(size(snr));
+
+threshold = 2.326;
+
+for k = 1:length(snr)
+    sigma = 1/sqrt(10^(snr(k)/10));
+    Pd(k) = 0.5*erfc((threshold*sigma-1)/(sqrt(2)*sigma));
+end
+
+figure
+plot(snr,Pd,'o-','LineWidth',1.5)
+title('Probability of Detection vs SNR, Pfa = 0.01')
+xlabel('SNR (dB)')
+ylabel('Probability of Detection (Pd)')
+ylim([0 1.05])
+
+% Figure 4: ROC Curve
+thresholds = linspace(-2,5,100);
+sigma = 1;
+
+Pfa_roc = 0.5*erfc(thresholds/sqrt(2));
+Pd_roc = 0.5*erfc((thresholds-1)/sqrt(2));
+
+figure
+semilogx(Pfa_roc,Pd_roc,'o-','LineWidth',1.5)
+title('ROC Curve for Radar Target Detection, SNR = 0 dB')
+xlabel('Probability of False Alarm (Pfa)')
+ylabel('Probability of Detection (Pd)')
+xlim([1e-4 1])
+ylim([0 1.05])
+grid on
+
+exp3 | doppler fs
+
+clc; clear; close all;
+
+c = 3e8;
+t = 0:1e-5:0.1-1e-5;
+f = (-5000:4999)*10;
+v = 10:10:50;
+fc = [2 5 10 15 20]*1e9;
+
+fdA = 2*v*10e9/c;
+fdB = 2*30*fc/c;
+
+fprintf('\nEffect of Target Velocity\n');
+fprintf('%d m/s   %.2f Hz\n', [v; fdA])
+
+fprintf('\nEffect of Operating Frequency\n');
+fprintf('%d GHz   %.2f Hz\n', [fc/1e9; fdB])
+
+for fd = [fdA; fdB]'
+    figure
+    for k = 1:5
+        subplot(5,1,k)
+        plot(f,abs(fftshift(fft(cos(2*pi*fd(k)*t)))))
+        xlim([-5000 5000])
+        title(['Doppler Shift = ',num2str(fd(k)),' Hz'])
+        xlabel('Frequency (Hz)')
+        ylabel('Magnitude')
+        grid on
+    end
+end
+
+
+exp4 | MTI radar delay canceller
+clc; clear; close all;
+
+c=3e8; fc=10e9; lam=c/fc;
+PRF=5e3; Fs=20e6; pw=10e-6; BW=5e6; Np=64;
+
+R=[5000 12000 20000];
+V=[20 -15 8]; A=[1 0.8 0.6];
+
+Ns=Fs/PRF; Npw=round(Fs*pw);
+Rmax=c/(2*PRF); Vmax=lam*PRF/4;
+
+fprintf('Rmax=%.2f km, Vmax=+/-%.2f m/s\n',Rmax/1e3,Vmax)
+
+t=(0:Npw-1)'/Fs;
+tx=exp(1j*pi*BW/pw*(t-pw/2).^2);
+
+figure
+plot(t*1e6,real(tx))
+title('Transmitted LFM Pulse')
+xlabel('Time (us)'); ylabel('Amplitude'); grid on
+
+rx=zeros(Ns,Np);
+for n=1:3
+    d=round(2*R(n)/c*Fs);
+    dop=exp(1j*2*pi*2*V(n)/lam*(0:Np-1)/PRF);
+    rx(d+1:d+Npw,:)=rx(d+1:d+Npw,:)+A(n)*tx*dop;
+end
+
+rx=awgn(rx,10,'measured');
+y=filter(conj(flipud(tx)),1,rx);
+r=((0:Ns-1)-(Npw-1))*c/(2*Fs);
+
+figure
+plot(r/1e3,20*log10(abs(y(:,1))/max(abs(y(:,1)))+eps))
+title('Range Profile')
+xlabel('Range (km)'); ylabel('Magnitude (dB)'); grid on
+
+D=fftshift(fft(y.*hamming(Np).',128,2),2);
+D=20*log10(abs(D)/max(abs(D(:)))+eps);
+v=(-64:63)*PRF/128*lam/2;
+
+figure
+imagesc(v,r/1e3,D); axis xy; colorbar
+title('Range-Doppler Map')
+xlabel('Velocity (m/s)'); ylabel('Range (km)')
+
+figure
+mesh(v,r/1e3,D)
+title('3D Range-Doppler Map')
+xlabel('Velocity (m/s)'); ylabel('Range (km)')
+zlabel('Magnitude (dB)')
+
+
+exp5 | pulse doppler radar
+clc; clear; close all;
+
+t = 0:999;
+clutter = 1+0.1*randn(1,1000);
+target = sin(2*pi*0.08*t);
+rx = clutter+target+0.1*randn(1,1000);
+mti = diff(rx);
+
+figure
+subplot(4,1,1), plot(clutter), title('Clutter Signal')
+subplot(4,1,2), plot(target), title('Target Signal')
+subplot(4,1,3), plot(rx), title('Received Signal')
+subplot(4,1,4), plot(mti), title('MTI Output')
+
+xlabel('Samples')
+
+exp6 | radar display
+
+clc; clear; close all;
+
+r=0:100;
+th=linspace(0,2*pi,500);
+R=[25 50 75 60];
+Az=[40 120 220 300];
+V=[0.15 -0.10 0.08 -0.12];
+W=[0.4 -0.25 0.15 -0.3];
+B=zeros(101,360);
+
+figure
+for ang=1:360
+    R=R+V*0.05;
+    Az=mod(Az+W*0.05,360);
+    hit=abs(mod(Az-ang+180,360)-180)<=4;
+
+    % A-scan
+    a=0.02*rand(size(r));
+    for k=find(hit)
+        a=a+exp(-((r-R(k))/2).^2);
+    end
+    subplot(1,3,1), plot(r,a), axis([0 100 0 1.2])
+    title('A-Scan'), xlabel('Range'), ylabel('Amplitude')
+
+    % B-scan
+    B=0.99*B;
+    B(round(R(hit))+1,mod(round(Az(hit)),360)+1)=1;
+    subplot(1,3,2), imagesc(0:359,r,B), axis xy
+    title('B-Scan'), xlabel('Azimuth'), ylabel('Range')
+
+    % PPI
+    x=R.*sind(Az); y=R.*cosd(Az);
+    subplot(1,3,3)
+    plot(sin(th)'*(25:25:100),cos(th)'*(25:25:100),'Color',[.7 .7 .7])
+    hold on
+    plot(x,y,'bo',x(hit),y(hit),'ro',[0 100*sind(ang)],[0 100*cosd(ang)],'k')
+    hold off
+    axis equal; axis([-100 100 -100 100])
+    title('PPI Display'), xlabel('X'), ylabel('Y')
+
+    drawnow
+end
+
+exp7 | link budget
+
+clc; clear; close all;
+
+f=12e9; R=38000e3; lam=3e8/f;
+
+Gt=10*log10(0.65*(pi*2.4/lam)^2);
+Gr=10*log10(0.60*(pi*1.8/lam)^2);
+EIRP=10*log10(100)+Gt-2;
+
+Pr=@(d) EIRP-20*log10(4*pi*d/lam)+Gr-3.5;
+N=10*log10(1.38e-23*500*36e6);
+
+CN=Pr(R)-N;
+margin=CN-10;
+
+names=["Wavelength (m)";"Tx Gain (dBi)";"Rx Gain (dBi)";"EIRP (dBW)";"FSPL (dB)";"Received Power (dBW)";"Noise Power (dBW)";"C/N (dB)";"Link Margin (dB)"];
+vals=[lam;Gt;Gr;EIRP;20*log10(4*pi*R/lam);Pr(R);N;CN;margin];
+
+disp(table(names,vals))
+if margin>=0, disp('FEASIBLE')
+else, disp('NOT FEASIBLE'), end
+
+d=linspace(1000,50000,20);
+
+subplot(2,1,1)
+plot(d,Pr(d*1e3),'bo-',R/1e3,Pr(R),'ro')
+title('Received Power vs Distance')
+xlabel('Distance (km)'); ylabel('Power (dBW)')
+
+subplot(2,1,2)
+plot(d,Pr(d*1e3)-N-10,'bo-',R/1e3,margin,'ro')
+yline(0)
+title('Link Margin vs Distance')
+xlabel('Distance (km)'); ylabel('Link Margin (dB)')
+
+exp8 | satellite orbit
+clc; clear; close all;
+
+alt=[500 20200 35786];
+c=input('1 LEO, 2 MEO, 3 GEO: ');
+
+r=6371+alt(c);
+T=2*pi*sqrt(r^3/398600.4418);
+fprintf('Altitude=%d km\nPeriod=%.2f hours\n',alt(c),T/3600)
+
+th=linspace(0,2*pi,500);
+x=r*cos(th); y=r*sin(th);
+
+figure
+[a,b,d]=sphere(30);
+surf(6371*a,6371*b,6371*d,'EdgeColor','none')
+hold on; axis equal
+sat=plot3(x(1),y(1),0,'ro','MarkerFaceColor','r');
+plot3(x,y,0*x,'r')
+title('Satellite Orbit')
+xlabel('X (km)'); ylabel('Y (km)'); zlabel('Z (km)')
+
+for k=1:5:500
+    set(sat,'XData',x(k),'YData',y(k))
+    drawnow
+end
+
+figure
+plot(th*180/pi, r*ones(size(th)))
+title('Satellite Orbital Position')
+xlabel('Angle (degrees)'); ylabel('Orbital Radius (km)')
+
+
+
+
+
+exp9 |simulation noise
+
+clc; clear; close all;
+
+T=150; G=35; Pc=-100;
+Tr=50:10:500; Gr=20:50;
+
+N=@(T) 10*log10(1.38e-23*T*1e6);
+
+fprintf('Noise Power = %.2f dBW\n',N(T))
+fprintf('C/N Ratio = %.2f dB\n',Pc-N(T))
+fprintf('G/T Ratio = %.2f dB/K\n',G-10*log10(T))
+
+subplot(2,2,1)
+plot(Tr,N(Tr),'bo-',T,N(T),'ro')
+title('Noise Power vs Temperature')
+xlabel('Temperature (K)'); ylabel('Noise (dBW)')
+
+subplot(2,2,2)
+plot(Tr,Pc-N(Tr),'bo-',T,Pc-N(T),'ro')
+title('C/N Ratio vs Temperature')
+xlabel('Temperature (K)'); ylabel('C/N (dB)')
+
+subplot(2,2,3)
+plot(Gr,Gr-10*log10(T),'bo-',G,G-10*log10(T),'ro')
+title('G/T Ratio vs Gain')
+xlabel('Gain (dB)'); ylabel('G/T (dB/K)')
+
+subplot(2,2,4)
+plot(Tr,G-10*log10(Tr),'bo-',T,G-10*log10(T),'ro')
+title('G/T Ratio vs Temperature')
+xlabel('Temperature (K)'); ylabel('G/T (dB/K)')
+
